@@ -1,3 +1,5 @@
+options(digits = 3)
+
 library(Lahman)
 library(tidyverse)
 library(dslabs)
@@ -50,3 +52,70 @@ Teams %>% filter(yearID %in% 1961:2001) %>%
 Teams %>% filter(yearID %in% 1961:2001) %>%
   mutate(X2B_per_game = X2B / G, X3B_per_game = X3B / G) %>%
   summarise(r = mean(scale(X2B_per_game) * scale(X3B_per_game)))
+
+#### Confounding ####
+
+# function to get slope
+get_slope <- function(x, y) cor(x, y) * sd(y) / sd(x)
+
+# slope of BBs vs runs
+Teams %>% filter(yearID %in% 1961:2001) %>% 
+  mutate(BB_per_game = BB/G, R_per_game = R/G) %>% 
+  summarise(slope = get_slope(BB_per_game, R_per_game))
+
+# slope of singles vs runs
+Teams %>% filter(yearID %in% 1961:2001) %>% 
+  mutate(Singles_per_game = (H - HR - X2B - X3B)/G, R_per_game = R/G) %>% 
+  summarise(slope = get_slope(Singles_per_game, R_per_game))
+
+# correlation btw HR, BB and singles
+Teams %>% filter(yearID %in% 1961:2001) %>% 
+  mutate(singles = (H - HR - X2B - X3B)/G, BB = BB/G, HR = HR/G) %>% 
+  summarise(cor(singles, BB), cor(BB, HR), cor(singles, HR))
+
+# stratify BB by HR
+dat <- Teams %>% filter(yearID %in% 1961:2001) %>% 
+  mutate(HR_strata = round(HR/G, 1),
+         BB_per_game = BB/G,
+         R_per_game = R/G) %>% 
+  filter(HR_strata >= .4 & HR_strata <= 1.2)
+
+# plot each strata
+dat %>% ggplot(aes(BB_per_game, R_per_game)) +
+  geom_point(alpha = .5) +
+  geom_smooth(method = "lm") +
+  facet_wrap(~ HR_strata)
+
+# calculate slope for each HR strata
+dat %>% group_by(HR_strata) %>% 
+  summarise(slope = get_slope(BB_per_game, R_per_game))
+
+Teams %>% filter(yearID %in% 1961:2001) %>%
+  mutate(HR_per_game = HR/G, R_per_game = R/G, BB_per_game = BB/G) %>%
+  lm(R_per_game ~ BB_per_game + HR_per_game, data = .)
+
+# Practice ####
+bat_02 <- Batting %>% filter(yearID == 2002) %>%
+  mutate(pa = AB + BB, singles = (H - X2B - X3B - HR)/pa, bb = BB/pa) %>%
+  filter(pa >= 100) %>%
+  select(playerID, singles, bb)
+
+bat99_01 <- Batting %>% filter(yearID %in% 1999:2001) %>%
+  mutate(pa = AB + BB, singles = (H - X2B - X3B - HR)/pa, bb = BB/pa) %>%
+  filter(pa >= 100) %>%
+  group_by(playerID) %>% 
+  summarise(mean_singles = mean(singles), mean_bb = mean(bb))
+
+bat99_02 <- bat99_01 %>% inner_join(bat_02)
+cor(bat99_02$singles, bat99_02$mean_singles)
+cor(bat99_02$bb, bat99_02$mean_bb)
+
+bat99_02 %>% ggplot(aes(singles, mean_singles)) + geom_point()
+bat99_02 %>% ggplot(aes(bb, mean_bb)) + geom_point()
+
+bat99_02 %>% lm(singles ~ mean_singles, data = .)
+bat99_02 %>% lm(bb ~ mean_bb, data = .)
+
+# Linear regression & the tidyverse ####
+dat %>% group_by(HR_strata) %>% 
+  do(fit = lm(R ~ BB, data = .))
