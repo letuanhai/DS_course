@@ -117,5 +117,102 @@ bat99_02 %>% lm(singles ~ mean_singles, data = .)
 bat99_02 %>% lm(bb ~ mean_bb, data = .)
 
 # Linear regression & the tidyverse ####
+library(broom)
+
 dat %>% group_by(HR_strata) %>% 
   do(fit = lm(R ~ BB, data = .))
+
+# using data from 1961:2001 to fit linear model
+fit <- Teams %>% filter(yearID %in% 1961:2001) %>% 
+  mutate(BB = BB/G,
+         singles = (H - X2B - X3B - HR)/G,
+         doubles = X2B/G,
+         triples = X3B/G,
+         HR = HR/G,
+         R = R/G) %>% 
+  lm(R ~ BB + singles + doubles + triples + HR, data = .)
+
+# plot predicted vs actual for 2002
+Teams %>% filter(yearID == 2002) %>% 
+  mutate(BB = BB/G,
+         singles = (H - X2B - X3B - HR)/G,
+         doubles = X2B/G,
+         triples = X3B/G,
+         HR = HR/G,
+         R = R/G) %>% 
+  mutate(R_hat = predict(fit, newdata = .)) %>% 
+  ggplot(aes(R_hat, R, label = teamID)) +
+  geom_point() +
+  geom_text(nudge_x = .1, cex =2) +
+  geom_abline()
+
+pa_per_game <- Batting %>% filter(yearID == 2002) %>% 
+  group_by(teamID) %>%
+  summarise(pa_per_game = sum(AB + BB)/max(G)) %>% 
+  pull(pa_per_game) %>% 
+  mean
+
+# Practice ####
+library(Lahman)
+library(broom)
+
+Teams %>% filter(yearID == 1971) %>% 
+  mutate(BB = BB/G, HR = HR/G, R = R/G) %>% 
+  lm(R ~ BB + HR, data = .) %>% tidy()
+
+Teams %>% filter(yearID %in% 1961:2018) %>% 
+  group_by(yearID) %>% 
+  do(tidy(lm(R ~ BB + HR, data = .), conf.int = T)) %>% 
+  filter(term == "BB") %>% 
+  lm(estimate ~ yearID, data = .) %>% tidy()
+
+# game attendance ####
+library(tidyverse)
+library(broom)
+library(Lahman)
+Teams_small <- Teams %>% 
+  filter(yearID %in% 1961:2001) %>% 
+  mutate(avg_attendance = attendance/G)
+
+Teams_small %>% mutate(R = R/G) %>% 
+  lm(avg_attendance ~ R, data = .) %>% tidy()
+
+Teams_small %>% mutate(HR = HR/G) %>% 
+  lm(avg_attendance ~ HR, data = .) %>% tidy()
+
+Teams_small %>% lm(avg_attendance ~ W, data = .) %>% tidy()
+Teams_small %>% lm(avg_attendance ~ yearID, data = .) %>% tidy()
+
+Teams_small %>% summarise(cor(R/G, W), cor(W, HR/G))
+
+w_stra <- Teams_small %>% mutate(W_strata = round(W/10)) %>% 
+  filter(between(W_strata, 5, 10)) %>% 
+  group_by(W_strata) %>% filter(n() >= 20) %>% 
+  ungroup()
+
+w_stra %>% filter(W_strata == 8) %>% nrow()
+
+w_stra %>% mutate(R = R/G) %>% 
+  group_by(W_strata) %>% 
+  do(tidy(lm(avg_attendance ~ R, data = .))) %>% 
+  filter(term == "R") %>% 
+  arrange(estimate)
+
+w_stra %>% mutate(HR = HR/G) %>% 
+  group_by(W_strata) %>% 
+  do(tidy(lm(avg_attendance ~ HR, data = .))) %>% 
+  filter(term == "HR") %>% 
+  arrange(estimate)
+
+fit <- Teams_small %>% mutate(R = R/G, HR = HR/G) %>% 
+  lm(avg_attendance ~ R + HR + W + yearID, data = .)
+
+sce1 <- tibble(R = 5, HR = 1.2, W = 80, yearID = 2002)
+sce2 <- tibble(R = 5, HR = 1.2, W = 80, yearID = 1960)
+predict(fit, newdata = sce1)
+predict(fit, newdata = sce2)
+
+Teams %>% filter(yearID == 2002) %>% 
+  mutate(R = R/G, HR = HR/G, avg_att_actual = attendance/G) %>% 
+  mutate(avg_att_est = predict(fit, newdata = .)) %>% 
+  summarise(cor(avg_att_est, avg_att_actual))
